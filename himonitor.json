@@ -1,0 +1,46 @@
+{
+    "ready": [
+        {
+            "status": 1, 
+            "prepare": "", 
+            "windup": "", 
+            "parameter": "", 
+            "progname": "python G:\\FY17\\hiwatchdog\\test.py", 
+            "type": ""
+        }, 
+        {
+            "status": 1, 
+            "prepare": "", 
+            "windup": "", 
+            "parameter": "3", 
+            "progname": "python G:\\FY17\\hiwatchdog\\test.py", 
+            "type": "2"
+        }
+    ], 
+    "main": [
+        {
+            "status": 0, 
+            "prepare": "python G:\\FY17\\hiwatchdog\\test.py", 
+            "windup": "python G:\\FY17\\hiwatchdog\\test.py", 
+            "parameter": "2", 
+            "progname": "python G:\\FY17\\hiwatchdog\\test.py", 
+            "type": ""
+        }, 
+        {
+            "status": 1, 
+            "prepare": "", 
+            "windup": "", 
+            "parameter": "0", 
+            "progname": "python G:\\FY17\\hiwatchdog\\test.py", 
+            "type": ""
+        }, 
+        {
+            "status": 1, 
+            "prepare": "", 
+            "windup": "", 
+            "parameter": "", 
+            "progname": "C:\\Program Files (x86)\\Tencent\\QQ\\Bin\\QQ.exe", 
+            "type": "1"
+        }
+    ]
+}
