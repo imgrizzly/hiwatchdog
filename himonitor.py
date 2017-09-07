@@ -27,15 +27,14 @@ MONITOR_MAIN_EXIT = False
 thread_terminate = threading.Event()
 thread_terminate.clear()
 
-PID_CMDLINE = {}
 C2P_DICT = {}
 thread_conf_edited = threading.Event()
 thread_conf_edited.clear()
 
 logger = logging.getLogger('')
 logger.setLevel(logging.DEBUG)
-curr_path = os.path.dirname(os.path.realpath(__file__)) + os.sep
-
+curr_path =  os.getcwd() + os.sep # os.path.dirname(os.path.realpath(__file__))
+CONFIG_FILE = curr_path + 'himonitor.json'
 if os.path.exists(curr_path + "log") is False:
     os.mkdir(curr_path + "log")
 LOG_FILE = curr_path + "log" + os.sep + os.path.basename(sys.argv[0]).split(".")[0] + "_DEBUG_.log"
@@ -64,7 +63,7 @@ class MyHandler(FileSystemEventHandler):
             with open(curr_path + 'logging.conf', 'r') as log_conf:
                 logger.setLevel(int(json.loads(log_conf.read())["log_level"]))
                 logger.critical("logger level modify!")
-        if event.src_path == curr_path + 'himonitor.json':
+        if event.src_path == CONFIG_FILE:
             thread_conf_edited.set()  # notify  monitor thread.
 
 
@@ -75,7 +74,7 @@ def switch_monitor_item(configkey, progname, parameter, switch):
         opt_value = 1
     elif switch == "stop":
         opt_value = 0
-    filename = curr_path + 'himonitor.json'
+    filename = CONFIG_FILE
     with open(filename, 'r') as configfile:
         config_json = json.loads(configfile.read().strip(), object_pairs_hook=OrderedDict)
     for inx, val in enumerate(config_json[configkey]):
@@ -97,7 +96,7 @@ def switch_monitor_item(configkey, progname, parameter, switch):
 
 def add_or_del_item(configkey, opt, *args):
     # TODO add or del  item of config.
-    filename = curr_path + 'himonitor.json'
+    filename = CONFIG_FILE
     with open(filename, 'r') as configfile:
         config_json = json.loads(configfile.read().strip(), object_pairs_hook=OrderedDict)
     if opt == "add":
@@ -142,7 +141,7 @@ def query_status():
 def all_exit():
     # TODO Monitor Thread exit and Main Monitor Process Exit.
     global MONITOR_MAIN_EXIT
-    thread_terminate.set()  # notify all monitor thread and subprocess exit.
+    thread_terminate.set()  # notify all monitor thread  exit.
     config_monitor_process, _ = read_config("main")
     exit_time = time.time()
     while True:
@@ -157,6 +156,15 @@ def all_exit():
     MONITOR_MAIN_EXIT = True
 
 
+def monitor_exit():
+    # TODO  Main Monitor Process Exit.
+    global MONITOR_MAIN_EXIT
+    thread_terminate.set()  # notify  monitor thread  exit.
+    logger.critical(" Receive exit command is about to stop Main Process")
+    if not thread_terminate.isSet():
+        MONITOR_MAIN_EXIT = True # notify all monitor   main thread  exit.
+
+
 def return_running(config):
     # TODO  return running  monitored process dict. and no running process list
     running_process_dict = {}
@@ -168,8 +176,10 @@ def return_running(config):
                     running_process_dict[_.pid] = " ".join(_.cmdline())
         except:
             pass
-    return (running_process_dict,  set(config) - set(running_process_dict.values()))
-
+    if  running_process_dict is not None:
+        return (running_process_dict,  set(config) - set(running_process_dict.values()))
+    else:
+        return ({}, set(config))
 
 def pkill_all(config):
     # TODO exit monitor or exit monitor and monitored process
@@ -202,93 +212,100 @@ def pkill_all(config):
 
 
 def monitor_process(process_list, exit_flag, edit_flag):
-    global PID_CMDLINE
-
     while True:
         time.sleep(2)
         try:
             if exit_flag.isSet():
-                logger.critical("Monitoring thread is about to exit: ")
-                for _ in PID_CMDLINE.keys():
-                    psutil.Process(_).terminate()
-                    logger.critical("PID :%s Being monitored Process exit: %s" % (_, PID_CMDLINE[_]))
+                thread_terminate.clear()
                 break
         except Exception as e:
             logger.critical("Exiting monitor thread Error: ", exc_info=True)
         try:
             if edit_flag.isSet():
                 cmdlist, cmd_all_list = read_config("main")
-                if set(cmdlist) == set(PID_CMDLINE.values()):
+
+                changed_monitoring_item = set(cmdlist) - set(process_list)
+                if set(cmdlist) == set(process_list):
                     logger.debug("The configuration is modified, but the monitoring item has not changed")
                     pass
-                elif len(set(cmdlist)) - len(set(PID_CMDLINE.values())) > 0:
-                    for _ in set(cmdlist) - set(PID_CMDLINE.values()):
-                        if _ not in return_running(cmdlist)[0].values():
+                elif len(changed_monitoring_item) > 0:
+                    for _ in changed_monitoring_item:
+                        running = return_running(cmdlist)[0].values()
+                        if _ not in running:
                             sp = [i for i in cmd_all_list if i[1] == _]
-                            pid = start_process(sp)
-                            logger.critical("added monitoring PID :%s cmdline: %s" % (pid, _))
+                            pid = start_process(sp[0])
+                            if pid != 0:
+                                logger.critical("added monitoring PID :%s cmdline: %s" % (pid, _))
                         else:
                             added_monitoring_item = return_running(_)[0]
-                            PID_CMDLINE = dict(PID_CMDLINE, **added_monitoring_item)
-                            logger.critical("added monitoring PID :%s cmdline: %s" % (added_monitoring_item.keys(), _))
+                            process_list = process_list.extend(added_monitoring_item.values())
+                            logger.critical("added monitoring cmdline: %s" % added_monitoring_item)
                             del added_monitoring_item
-                elif len(set(cmdlist)) - len(set(PID_CMDLINE.values())) < 0:
-                    remove_items = {k: v for k, v in PID_CMDLINE.items() if v not in cmdlist}
-                    PID_CMDLINE = {k: v for k, v in PID_CMDLINE.items() if v in cmdlist}
-                    for pk, cv in remove_items.items():
-                        logger.critical("removed monitoring PID :%s cmdline: %s" % (pk, cv))
+                elif len(set(cmdlist)) -  len(set(process_list)) < 0:
+                    remove_items = { v for v in process_list if v not in cmdlist}
+                    process_list = [ v for v in process_list if v in cmdlist]
+                    for cv in remove_items:
+                        logger.critical("removed monitoring  cmdline: %s" %cv)
                     pass
                 thread_conf_edited.clear()
         except Exception as e:
             logger.critical("Edit monitor thread Error: ")
             logging.exception(e)
-        logger.debug("Runing :" + str(PID_CMDLINE.values()))
-        if len(set(PID_CMDLINE.keys()) - set(psutil.pids())) > 0:
-            for _ in (set(PID_CMDLINE.keys()) - set(psutil.pids())):
-                logger.debug("monitoring Process PID :%s executing: %s" % (_, PID_CMDLINE[_]))
-                logger.critical('Ready to restart: ' + PID_CMDLINE[_].encode('utf-8'))
+
+        no_running_process = return_running(process_list)[1]
+        if len(no_running_process) > 0:
+            for _ in no_running_process:
+                logger.debug("monitoring Process  executing: %s" % _)
+                logger.critical('Ready to restart: ' + _)
                 cmdlist, cmd_all_list = read_config("main")
-                if PID_CMDLINE[_] not in return_running(cmdlist)[0].values():
-                    sp = [i for i in cmd_all_list if i[1] == PID_CMDLINE[_]]
-                    pid = start_process(sp)
-                    logger.critical("added monitoring PID :%s cmdline: %s" % (pid, PID_CMDLINE[_]))
-                    logger.critical("removed monitoring PID :%s cmdline: %s" % (_, PID_CMDLINE[_]))
-                    PID_CMDLINE.pop(_)
-                else:
-                    added_monitoring_item = return_running(PID_CMDLINE[_])[0]
-                    PID_CMDLINE = dict(PID_CMDLINE, **added_monitoring_item)
-                    logger.critical("added monitoring PID :%s cmdline: %s" % (added_monitoring_item.keys(), added_monitoring_item.values()))
-                    logger.critical("removed monitoring PID :%s cmdline: %s" % (_, PID_CMDLINE[_]))
-                    PID_CMDLINE.pop(_)
+                sp = [i for i in cmd_all_list if i[1] == _]
+                pid = start_process(sp[0])
+                logger.critical("added monitoring PID :%s cmdline: %s" % (pid, _))
 
+        logger.debug("Runing :" + str(process_list))
 
-def run_once(runcmd):
-    # TODO only start once program
+def run_once(runcmd, run_type):
+    # TODO only start once program. run_type 1:loop running until run success.    0 :run once
     runcmd = "".join(runcmd)  # remove empty string entry
-    logger.debug('run_once cmd is :' + runcmd)
+    logger.debug('run_once cmd is :%s run_type is : %s' %(runcmd, run_type))
     assert isinstance(runcmd, object)
     begin_time = time.time()
-    p = subprocess.Popen(runcmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.PIPE,
+    p = subprocess.Popen(runcmd, stdout=None, stderr=None, stdin=None,
                          shell=True)
-    while True:
+    #  stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.PIPE
+    if run_type == 1:
+        while True:
+            p.wait()
+            time.sleep(1)
+            if p.returncode == 0:
+                time_consuming = time.time() - begin_time
+                logger.critical("Once Prceoss normal finsh:%s return code:%s time_consumings %s sec" % (runcmd,
+                                                                                                        p.returncode,
+                                                                                                        time_consuming))
+                return p.returncode
+            elif p.returncode and p.returncode != 0:
+                time_consuming = time.time() - begin_time
+                logger.critical("Once Prceoss faid :%s return code:%s time_consumings %s sec" % (runcmd, p.returncode,
+                                                                                                 time_consuming))
+                run_once(runcmd, 1)
+                # elif time.time() - begin_time > 5:  # time out is 5
+                #     logger.critical("Once Prceoss time out: " + runcmd)
+                #     p.terminate()
+                #     logger.critical("Once Prceoss is terminate: " + runcmd)
+                #     break
+    else:
         p.wait()
-        time.sleep(1)
-        if p.returncode == 0:
+        if p.returncode and p.returncode != 0:
+            time_consuming = time.time() - begin_time
+            logger.critical("Once Prceoss faid :%s return code:%s time_consumings %s sec" % (runcmd, p.returncode,
+                                                                                         time_consuming))
+        elif p.returncode == 0:
             time_consuming = time.time() - begin_time
             logger.critical("Once Prceoss normal finsh:%s return code:%s time_consumings %s sec" % (runcmd,
                                                                                                     p.returncode,
                                                                                                     time_consuming))
             return p.returncode
-        elif p.returncode and p.returncode != 0:
-            time_consuming = time.time() - begin_time
-            logger.critical("Once Prceoss faid :%s return code:%s time_consumings %s sec" % (runcmd, p.returncode,
-                                                                                             time_consuming))
-            run_once(runcmd)
-            # elif time.time() - begin_time > 5:  # time out is 5
-            #     logger.critical("Once Prceoss time out: " + runcmd)
-            #     p.terminate()
-            #     logger.critical("Once Prceoss is terminate: " + runcmd)
-            #     break
+
 
 
 def check_run(config):
@@ -309,7 +326,7 @@ def check_run(config):
 
 def init_config(configkey):
     # TODO restartup restore monitoring status
-    filename = curr_path + 'himonitor.json'
+    filename = CONFIG_FILE
     configfile = open(filename, 'r+')
     config_json = json.loads(configfile.read().strip())
     configfile.close()
@@ -347,7 +364,7 @@ def read_config(configkey):
     logger.debug("read config key is: " + configkey)
     cmd_all_list = []
     cmd_list = []
-    configfile = open(curr_path + 'himonitor.json', 'r')
+    configfile = open(CONFIG_FILE, 'r')
     config_json = json.loads(configfile.read().strip())
     configfile.close()
 
@@ -402,14 +419,14 @@ def chking_it(runcmd, exit_flag):
 
 def start_process(runcmd):
     # TODO start business process and return pid and cmdline. include  config key word is :prepare ,progname, windup
-    global PID_CMDLINE
     main_prepare = runcmd[0]
     main_main = runcmd[1]
     main_windup = runcmd[2]
 
     if main_prepare:
         logger.debug("Run_it main_prepare :" + main_prepare.encode("utf-8"))
-        run_once(main_prepare)
+        if run_once(main_prepare, 0) != 0:
+            return 0
     try:
         logger.debug("Run_it main_main :" + main_main.encode("utf-8"))
         if c2p(main_main):
@@ -423,13 +440,17 @@ def start_process(runcmd):
         logger.critical("run_it Error :" + main_main, exc_info=True)
         return 0
     logger.debug("PID: %s Run_it Success :%s" % (pid, main_main.encode("utf-8")))
-    PID_CMDLINE[pid] = main_main
+
 
     if main_windup:
         logger.debug("Run_it main_windup :" + main_windup.encode("utf-8"))
-        run_once(main_windup)
-
-    return pid
+        windup_returncode = run_once(main_windup, 0)
+        if windup_returncode != 0:
+            psutil.Process(pid).terminate()
+            logger.debug("because  main_windup [ %s ]faile. MAIN [ %s ]terminate:" %( main_windup.encode("utf-8"), main_main))
+            return 0
+        elif windup_returncode == 0 and pid:
+            return pid
 
 def start_type_one(var):
     # TODO return (type 1)'s pid. type1 : progname and cmdline is diff
@@ -526,7 +547,6 @@ def wait_child(signum, frame):
 
 def main():
     global MONITOR_MAIN_EXIT
-    global PID_CMDLINE
     lockname = []
     for _ in os.listdir(curr_path):
         if '.lock' in _:
@@ -547,20 +567,21 @@ def main():
 
     readopt, _ = read_config("ready")
     for _ in readopt:
-        run_once(_)
+        run_once(_, 1)
 
-    list_main_process, list_all_main_process = read_config("main")
-    list_main_process, has_been_up_monitoring_process = check_run(list_main_process)
-    PID_CMDLINE, _ = return_running(has_been_up_monitoring_process)
-    for _ in list_all_main_process[:]: #  loop through copy, opt oop through.
-        if len(set(_) & set(list_main_process)) == 0:  # Remove the process has been started
-            list_all_main_process.remove(_)
+    main_process, list_all_process = read_config("main")
+    need_start_main_process, has_been_up_process = check_run(main_process)
 
-    for cmd in list_all_main_process:
+    if has_been_up_process:
+        for _ in list_all_process[:]: #  loop through copy, opt oop through.
+            if len(set([_[1]]) & has_been_up_process) != 0:  # Remove the process has been started.
+                list_all_process.remove(_)
+    for cmd in list_all_process:
         start_process(cmd)
 
-    signal.signal(signal.SIGCHLD, wait_child)
-    Thread(target=monitor_process, args=(PID_CMDLINE, thread_terminate, thread_conf_edited,)).start()
+    if platform == "Linux":
+        signal.signal(signal.SIGCHLD, wait_child)
+    Thread(target=monitor_process, args=(main_process, thread_terminate, thread_conf_edited,)).start()
 
     # for chk in list_except_process:
     #     s = Thread(target=chking_it, args=(chk, thread_terminate,))
