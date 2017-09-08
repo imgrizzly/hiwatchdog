@@ -94,34 +94,37 @@ def switch_monitor_item(configkey, progname, parameter, switch):
         return 2
 
 
-def add_or_del_item(configkey, opt, *args):
-    # TODO add or del  item of config.
-    filename = CONFIG_FILE
-    with open(filename, 'r') as configfile:
+def add_or_del_item(configkey, opt, argv):
+    # TODO add or del  item of configfile.
+
+    with open(CONFIG_FILE, 'r') as configfile:
         config_json = json.loads(configfile.read().strip(), object_pairs_hook=OrderedDict)
     if opt == "add":
-        item_keys = config_json[configkey][0].keys()
-        if len(args) < len(item_keys):
-            new_itme = args.__add__(('',) * (len(item_keys) - len(args)))
-        elif len(args) > len(item_keys):
-            logger.critical("Error : The number of incoming parameters is greater than the configuration")
-            logger.critical("Error args: %s" % str(args))
-            return False
-        else:
-            new_itme = args
-        config_json[configkey].append(OrderedDict(zip(item_keys, new_itme)))
-        with open(filename, 'w') as f:
-            json.dump(config_json, f, indent=4)
-        logger.debug('add %s config  item:%s %s ' % (configkey, str(args)))
+        args = eval(argv)
+        try:
+            for inx, val in enumerate(config_json[configkey]):
+                if args["progname"] == val["progname"] and args["parameter"] == val["parameter"]:
+                    logger.debug('add %s config  Duplicate items, add Faile:%s ' % (configkey, str(args)))
+                    return
+            config_json[configkey].append(args)
+            with open(CONFIG_FILE, 'w') as f:
+                json.dump(config_json, f, indent=4)
+            logger.debug('add %s config  item Success:%s ' % (configkey, str(args)))
+        except:
+            logger.debug('add %s config  item Fail:%s ' % (configkey,str(args)),exc_info=True)
+
     elif opt == "del":
-        progname = args[0]
-        parameter = args[1]
+        print argv
+        progname = argv[0]
+        parameter = argv[1]
         for inx, val in enumerate(config_json[configkey]):
             if progname in os.path.split(val["progname"])[1] and parameter == val["parameter"]:
                 config_json[configkey].pop(inx)
-        with open(filename, 'w') as f:
+            else:
+                logger.debug('del %s config  item Fail:%s %s ' % (configkey, progname, parameter))
+        with open(CONFIG_FILE, 'w') as f:
             json.dump(config_json, f, indent=4)
-        logger.debug('del %s config  item:%s %s ' % (configkey, progname, parameter))
+        logger.debug('del %s config  item Success:%s %s ' % (configkey, progname, parameter))
 
 
 def query_status():
@@ -230,17 +233,19 @@ def monitor_process(process_list, exit_flag, edit_flag):
                     pass
                 elif len(changed_monitoring_item) > 0:
                     for _ in changed_monitoring_item:
-                        running = return_running(cmdlist)[0].values()
-                        if _ not in running:
-                            sp = [i for i in cmd_all_list if i[1] == _]
-                            pid = start_process(sp[0])
-                            if pid != 0:
-                                logger.critical("added monitoring PID :%s cmdline: %s" % (pid, _))
-                        else:
-                            added_monitoring_item = return_running(_)[0]
-                            process_list = process_list.extend(added_monitoring_item.values())
-                            logger.critical("added monitoring cmdline: %s" % added_monitoring_item)
-                            del added_monitoring_item
+                        # running = return_running(cmdlist)[0].values()
+                        # if _ not in running:
+                        #     sp = [i for i in cmd_all_list if i[1] == _]
+                        #     pid = start_process(sp[0])
+                        #     process_list.append(_)
+                        #     if pid != 0:
+                        #         logger.critical("added monitoring PID :%s cmdline: %s" % (pid, _))
+                        # else:
+                        #     added_monitoring_item = return_running(_)[0]
+                        #     process_list = process_list.extend(added_monitoring_item.values())
+                        process_list.append(_)
+                        logger.critical("added monitoring cmdline: %s" % added_monitoring_item)
+                        del added_monitoring_item
                 elif len(set(cmdlist)) -  len(set(process_list)) < 0:
                     remove_items = { v for v in process_list if v not in cmdlist}
                     process_list = [ v for v in process_list if v in cmdlist]
@@ -488,6 +493,7 @@ def opt_argv(main_pid):
     length_argv = len(sys.argv)
     if main_pid:
         if length_argv == 1:
+            print "The same process PID:%s is running!"% main_pid
             logger.critical("The same process PID:%s is running!" % main_pid)
             sys.exit(0)
         elif length_argv == 2:
@@ -509,6 +515,16 @@ def opt_argv(main_pid):
                 else:
                     tmp = ""
                 switch_monitor_item("main", sys.argv[2], tmp, sys.argv[1])
+            elif sys.argv[1] == "del":
+                if length_argv == 4:
+                    args = sys.argv[2], sys.argv[3]
+                elif length_argv == 3:
+                    args = sys.argv[2], ""
+                add_or_del_item("main", sys.argv[1], args)
+            elif length_argv == 3:
+                if sys.argv[1] == "add":
+                    print sys.argv[2]
+                    add_or_del_item("main", sys.argv[1], sys.argv[2])
             else:
                 print "usage:start|stop  [PrceossName] [parameter]"
             sys.exit(0)
@@ -516,10 +532,21 @@ def opt_argv(main_pid):
             print "Please input correct parameters!"
             sys.exit(0)
     else:
-        if length_argv == 2 and sys.argv[1] == "status":
+        if length_argv == 1:
+            return
+        elif length_argv == 2 and sys.argv[1] == "status":
             print "Please start the monitoring program first."
             sys.exit(0)
-        elif length_argv > 1:
+        elif sys.argv[1] == "del":
+            if length_argv == 4:
+                args = sys.argv[2],sys.argv[3]
+            elif length_argv == 3:
+                args = sys.argv[2], ""
+            add_or_del_item("main",sys.argv[1], args)
+        elif length_argv == 3:
+            if sys.argv[1] == "add":
+                add_or_del_item("main", sys.argv[1], sys.argv[2])
+        else:
             print "Please input correct parameters!"
             sys.exit(0)
 
