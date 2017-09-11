@@ -118,13 +118,18 @@ def add_or_del_item(configkey, opt, argv):
         progname = argv[0]
         parameter = argv[1]
         for inx, val in enumerate(config_json[configkey]):
+            print os.path.split(val["progname"])[1]
+            print val["parameter"]
             if progname in os.path.split(val["progname"])[1] and parameter == val["parameter"]:
                 config_json[configkey].pop(inx)
-            else:
-                logger.debug('del %s config  item Fail:%s %s ' % (configkey, progname, parameter))
+                logger.debug('match config  item Success:%s %s ' % (progname, parameter))
+                break
+        else:
+            logger.debug('match %s config  item Fail:%s %s ' % (val, progname, parameter))
+            return
         with open(CONFIG_FILE, 'w') as f:
             json.dump(config_json, f, indent=4)
-        logger.debug('del %s config  item Success:%s %s ' % (configkey, progname, parameter))
+        logger.debug('del config  item Success:%s %s ' % (progname, parameter))
 
 
 def query_status():
@@ -521,34 +526,33 @@ def opt_argv(main_pid):
                 elif length_argv == 3:
                     args = sys.argv[2], ""
                 add_or_del_item("main", sys.argv[1], args)
-            elif length_argv == 3:
-                if sys.argv[1] == "add":
-                    print sys.argv[2]
-                    add_or_del_item("main", sys.argv[1], sys.argv[2])
+            elif length_argv == 3 and sys.argv[1] == "add":
+                add_or_del_item("main", sys.argv[1], sys.argv[2])
             else:
                 print "usage:start|stop  [PrceossName] [parameter]"
+                sys.exit(1)
             sys.exit(0)
         else:
             print "Please input correct parameters!"
-            sys.exit(0)
+            sys.exit(1)
     else:
         if length_argv == 1:
             return
         elif length_argv == 2 and sys.argv[1] == "status":
             print "Please start the monitoring program first."
-            sys.exit(0)
         elif sys.argv[1] == "del":
             if length_argv == 4:
                 args = sys.argv[2],sys.argv[3]
             elif length_argv == 3:
                 args = sys.argv[2], ""
             add_or_del_item("main",sys.argv[1], args)
-        elif length_argv == 3:
-            if sys.argv[1] == "add":
-                add_or_del_item("main", sys.argv[1], sys.argv[2])
+        elif length_argv == 3 and sys.argv[1] == "add":
+            add_or_del_item("main", sys.argv[1], sys.argv[2])
         else:
             print "Please input correct parameters!"
-            sys.exit(0)
+            sys.exit(1)
+
+        sys.exit(0)
 
 def wait_child(signum, frame):
     logger.info('receive SIGCHLD')
